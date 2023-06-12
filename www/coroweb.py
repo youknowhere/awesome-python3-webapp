@@ -1,3 +1,5 @@
+__author__ = 'prince Fan'
+
 import asyncio, os, inspect, logging, functools
 
 from aiohttp import web
@@ -74,6 +76,7 @@ def has_request_arg(fn):
         if found and (param.kind != inspect.Parameter.VAR_POSITIONAL and 
                       param.kind != inspect.Parameter.VAR_KEYWORD and param.kind != inspect.Parameter.KEYWORD_ONLY):  
             raise ValueError('request parameter must be the last named parameter in function %s(%s)' % (name, str(sig)))    
+    return found
  
 
 class RequestHandler(object):
@@ -94,12 +97,12 @@ class RequestHandler(object):
                 if not request.content_type:
                     return web.HTTPBadRequest('Missing Content-type.')
                 ct = request.content_type.lower()
-                if ct.startwith('application/json'):
+                if ct.startswith('application/json'):
                     params = await request.json()
                     if not isinstance(params, dict):
                         return web.HTTPBadRequest('JSON body must be object.')
                     kw = params
-                elif ct.startwith('application/x-www-form-urlencoded') or ct.startwith('multipart/form_data'):
+                elif ct.startswith('application/x-www-form-urlencoded') or ct.startswith('multipart/form_data'):
                     params = await request.post()
                     kw = dict(**params)
                 else:
@@ -127,18 +130,18 @@ class RequestHandler(object):
                     logging.warning('Duplicated arg name in named arg and kw args: %s' % k)
                 kw[k] = v
             
-            if self._has_request_arg:
-                kw['request'] = request
-            # check required kw:
-            for name in self._required_kw_args:
-                if not name in kw:
-                    return web.HTTPBadRequest('Missing arguement %s' % name)
-            logging.info('call with args: %s' % str(kw))
-            try:
-                r = await self.func(**kw)
-                return r
-            except APIError as e:
-                return dict(error = e.error, data = e.data, message = e.message)
+        if self._has_request_arg:
+            kw['request'] = request
+        # check required kw:
+        for name in self._required_kw_args:
+            if not name in kw:
+                return web.HTTPBadRequest('Missing arguement %s' % name)
+        logging.info('call with args: %s' % str(kw))
+        try:
+            r = await self._func(**kw)
+            return r
+        except APIError as e:
+            return dict(error = e.error, data = e.data, message = e.message)
             
 def add_static(app):
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
@@ -169,4 +172,4 @@ def add_routes(app, module_name):
             method = getattr(fn, '__method__', None)
             path = getattr(fn, '__path__', None)
             if method and path:
-                add_route(app, RequestHandler(fn))
+                add_route(app, fn)

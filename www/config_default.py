@@ -1,3 +1,5 @@
+__author__ = 'prince Fan'
+
 config = {
     'db' : {
         'host' : '127.0.0.1',

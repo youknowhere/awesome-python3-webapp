@@ -10,13 +10,13 @@ def log(sql, arg = ()):
 async def create_pool(loop, **kw):
     logging.info('create database connection pool...')
     global __pool
-    __pool = aiomysql.create_pool(
+    __pool = await aiomysql.create_pool(
         host = kw.get('host', 'localhost'),
         port = kw.get('port', 3306),
         user = kw['user'],
         password = kw['password'],
         db = kw['db'],
-        charset = kw.get('charset', 'utf-8'),
+        charset = kw.get('charset', 'utf8'),
         autocommit = kw.get('autocommit', True),
         maxsize = kw.get('maxsize', 10),
         minsize = kw.get('minsize', 1),
@@ -26,9 +26,9 @@ async def create_pool(loop, **kw):
 async def select(sql, args, size = None):
     log(sql, args)
     global __pool
-    async with __pool.get() as conn:
+    async with __pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.excute(sql.replace('?', '%s'), args or ())
+            await cur.execute(sql.replace('?', '%s'), args or ())
             if size:
                 rs = await cur.fetchmany(size)
             else:
@@ -38,12 +38,12 @@ async def select(sql, args, size = None):
 
 async def execute(sql, args, autocommit = True):
     log(sql)
-    async with __pool.get() as conn:
+    async with __pool.acquire() as conn:
         if not autocommit:
             conn.begin()
         try:
-            async with conn.cursor() as cur:
-                await cur.exeute(sql.replace('?', '%s'), args)
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute(sql.replace('?', '%s'), args)
                 affected = cur.rowcount
             if not autocommit:
                 await conn.commit()
@@ -97,7 +97,7 @@ class ModelMetaClass(type):
         tableName = attrs.get('__table__', None) or name
         logging.info('found model: %s (table: %s)' % (name, tableName))
         # 获取所有的Field和主键名:
-        mappings = []
+        mappings = {}
         fields = []
         primary_key = None
         for k, v in attrs.items():
@@ -107,7 +107,7 @@ class ModelMetaClass(type):
                 if v.primary_key:
                     if primary_key:
                         raise RuntimeError('Duplicated primary key for field: %s' % k)
-                    primary_key = v.primary_key
+                    primary_key = k
                 else:
                     fields.append(k)
         if not primary_key:
@@ -133,7 +133,10 @@ class Model(dict, metaclass = ModelMetaClass):
         super(Model, self).__init__(**kw)
     
     def __getattr__(self, key):
-        return self[key]
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(r"'Model' object has no attribute '%s'" % key)
     
     def __setattr__(self, key, value):
         self[key] = value
@@ -150,6 +153,11 @@ class Model(dict, metaclass = ModelMetaClass):
             setattr(self, key, value)
         return value
     
+    @classmethod
+    async def create(cls):
+        'create table of cls'
+
+
     @classmethod
     async def find(cls, pk):
         'find object by primary key'
