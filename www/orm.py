@@ -195,7 +195,7 @@ class Model(dict, metaclass = ModelMetaClass):
                 args.append(limit)
             elif isinstance(limit, tuple):
                 sql.append('?,?')
-                sql.extend(limit)
+                args.extend(limit)
             else:
                 raise ValueError('Invalid limit value: %s' % str(limit))
         rs = await select(' '.join(sql), args)
