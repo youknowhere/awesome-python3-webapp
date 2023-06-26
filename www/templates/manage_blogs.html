@@ -32,7 +32,7 @@ function initVM(data){
 
 $(function() {
     getJSON('/api/blogs', {
-        page: {{page_index }}  
+        page: {{ page_index }}  
     }, function(err, results) {
         if(err) {
             return fatal(err);

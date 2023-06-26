@@ -12,7 +12,7 @@ from aiohttp import web
 
 from models import User, Comment, Blog, next_id
 
-from apis import APIValueError, APIResourceNotFoundError, Page
+from apis import APIValueError, APIResourceNotFoundError, APIPermissionError, Page
 
 from config import configs
 
@@ -86,7 +86,7 @@ async def index(request):
     }
 
 @get('/blog/{id}')
-async def get_blog(id):
+async def get_blog(request, *, id):
     blog = await Blog.find(id)
     comments = await Comment.findAll('blog_id=?', [id], orderBy = 'created_at desc')
     for c in comments:
@@ -95,7 +95,8 @@ async def get_blog(id):
     return {
         '__template__': 'blog.html',
         'blog': blog,
-        'comments': comments
+        'comments': comments,
+        '__user__': request.__user__
     }
     
 @get('/register')
@@ -109,6 +110,54 @@ def signin():
     return {
         '__template__' : 'signin.html'
     }
+
+@get('/signout')
+def signout(request):
+    referer = request.headers.get('Referer')
+    r = web.HTTPFound(referer or '/')
+    r.set_cookie(COOKIE_NAME, '-deleted-', max_age = 0, httponly = True)
+    logging.info('user signed out.')
+    return r
+
+@get('/manage/blogs')
+def manage_blogs(*, page='1'):
+    return {
+        '__template__': 'manage_blogs.html',
+        'page_index': get_page_index(page)
+    }
+
+@get('/manage/blogs/create')
+def manage_create_blog():
+    return {
+        '__template__': 'manage_blog_edit.html',
+        'id': '',
+        'action': '/api/blogs'
+    }
+
+@get('/manage/blogs/edit')
+def manage_edit_blog(*, id):
+    return {
+        '__template__': 'manage_blog_edit.html',
+        'id': id,
+        'action': '/api/blogs/%s' % id
+    }
+
+@get('/manage/comments')
+def manage_comments(*, page='1'):
+    return {
+        '__template__': 'manage_comments.html',
+        'page_index': get_page_index(page) 
+    }
+
+@get('/manage/users')
+def manage_users(*, page='1'):
+    return {
+        '__template__': 'manage_users.html',
+        'page_index': get_page_index(page)
+    }
+
+_RE_EMAIL = re.compile(r'^[a-z0-9\.\-\_]+\@[a-z0-9\-\_]+(\.[a-z0-9\-\_]+){1,4}$')
+_RE_SHA1 = re.compile(r'^[0-9a-f]{40}$')
 
 @post('/api/authenticate')
 async def authenticate(*, email, passwd):
@@ -135,31 +184,50 @@ async def authenticate(*, email, passwd):
     r.body = json.dumps(user, ensure_ascii=False).encode('utf-8')
     return r
 
-@get('/signout')
-def signout(request):
-    referer = request.header.get('Referer')
-    r = web.HTTPFound(referer or '/')
-    r.set_cookie(COOKIE_NAME, '-deleted-', max_age = 0, httponly = True)
-    logging.info('user signed out.')
-    return r
+@get('/api/comments')
+async def api_comments(*, page='1'):
+    page_index = get_page_index(page)
+    num = await Comment.findNumber('count(id)')
+    p = Page(num, page_index)
+    if num == 0:
+        return dict(page=p, comments=())
+    comments = await Comment.findAll(OrderBy='created_at desc', limit=(p.offset, p.limit))
+    return dict(page=p, comments=comments)
 
-@get('/manage/blogs')
-def manage_blogs(*, page='1'):
-    return {
-        '__template__': 'manage_blogs.html',
-        'page_index': get_page_index(page)
-    }
+@post('/api/blogs/{id}/comments')
+async def api_create_comment(id, request, *, content):
+    user = request.__user__
+    if user is None:
+        return APIPermissionError('Please signin first.')
+    if not content or not content.strip():
+        return APIValueError('content')
+    blog = await Blog.find(id)
+    if blog is None:
+        return APIResourceNotFoundError('Blog')
+    comment = Comment(blog_id=blog.id, user_id=user.id, user_name=user.name, user_image=user.image, content=content)
+    await comment.save()
+    return comment
 
-@get('/manage/blogs/create')
-def manage_create_blog():
-    return {
-        '__template__': 'manage_blog_edit.html',
-        'id': '',
-        'action': '/api/blogs'
-    }
+@post('/api/comments/{id}/delete')
+async def api_delete_comments(id, request):
+    check_admin(request)
+    c = await Comment.find(id)
+    if c is None:
+        return APIResourceNotFoundError('Comment')
+    await c.remove()
+    return dict(id=id)
 
-_RE_EMAIL = re.compile(r'^[a-z0-9\.\-\_]+\@[a-z0-9\-\_]+(\.[a-z0-9\-\_]+){1,4}$')
-_RE_SHA1 = re.compile(r'^[0-9a-f]{40}$')
+@get('/api/users')
+async def api_get_users(*, page='1'):
+    page_index = get_page_index(page)
+    num = await User.findNumber('count(id)')
+    p = Page(num, page_index)
+    if num == 0:
+        return dict(page=p, users=())
+    users = await User.findAll(orderBy='created_at desc', limit=(p.offset, p.limit))
+    for u in users:
+        u.passwd = '******'
+    return dict(page=p, users=users)
 
 @post('/api/users')
 async def api_register_user(*, email, name, passwd):
@@ -195,7 +263,6 @@ async def api_get_blogs(*, page = '1'):
     blogs = await Blog.findAll(orderBy='created_at desc', limit=(p.offset, p.limit))
     return dict(page=p, blogs=blogs)
 
-
 @get('/api/blogs/{id}')
 async def api_get_blog(id):
     blog = await Blog.find(id)
@@ -214,3 +281,28 @@ async def api_create_blog(request, *, name, summary, content):
          name=name.strip(), summary=summary.strip(), content=content.strip())
     await blog.save()
     return blog
+
+@post('/api/blogs/{id}')
+async def api_update_blog(id, request, *, name, summary, content):
+    check_admin(request)
+    blog = await Blog.find(id)
+    if not name or not name.strip():
+        return APIValueError('name', 'name cannot be empty.')
+    if not summary or not summary.strip():
+        return APIValueError('summary', 'summary cannot be empty.')
+    if not content or not content.strip():
+        return APIValueError('content', 'content cannot be empty.')
+    blog.name = name
+    blog.summary = summary
+    blog.content = content
+    await blog.update()
+    return blog
+
+@post('/api/blogs/{id}/delete')
+async def api_delete_blogs(request, *, id):
+    check_admin(request)
+    blog = await Blog.find(id)
+    if blog is None:
+        return APIResourceNotFoundError('Blog')
+    await blog.remove()
+    return dict(id=id)
