@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 __author__ = 'prince Fan'
 
 import asyncio, os, inspect, logging, functools

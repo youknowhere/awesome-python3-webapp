@@ -1,4 +1,3 @@
-#!C:/Users/000/.conda/envs/web_dev/python.exe
 #-*- coding: utf-8 -*-
 
 __author__ = 'prince Fan'

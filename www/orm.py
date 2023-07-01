@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 __author__ = 'prince Fan'
 
 from typing import Any
@@ -122,7 +124,7 @@ class ModelMetaClass(type):
         attrs['__select__'] = 'select `%s`, %s from `%s`' % (primary_key, ','.join(escaped_fields), tableName)
         attrs['__insert__'] = 'insert into `%s` (%s, `%s`) values (%s)' % (tableName, ','.join(escaped_fields), 
                                                                            primary_key, create_args_string(len(escaped_fields)+1))
-        attrs['__update__'] = 'update `%s` set %s where `%s`=?' % (tableName, ','.join(map(lambda f: '`%s`=?' % mappings.get(f).name or f, 
+        attrs['__update__'] = 'update `%s` set %s where `%s`=?' % (tableName, ','.join(map(lambda f: '`%s`=?' % (mappings.get(f).name or f), 
                                                                                            fields)), primary_key)
         attrs['__delete__'] = 'delete from `%s` where `%s`=?' % (tableName, primary_key)
         return type.__new__(cls, name, bases, attrs)

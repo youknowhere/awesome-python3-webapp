@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 __author__ = 'prince Fan'
 
 import logging; logging.basicConfig(level = logging.INFO)
@@ -120,7 +122,8 @@ def index(request):
     return web.Response(body = b'<h1>Awesome</h1>', content_type='text/html')
 
 async def init(loop):
-    await orm.create_pool(loop = loop, host = '127.0.0.1', port = 3306, user = 'root', password = 'fxyjiayou', db = 'awesome')
+    # 设置自己的host地址
+    await orm.create_pool(loop = loop, host = '192.168.5.128', port = 3306, user = 'root', password = 'fxyjiayou', db = 'awesome')
     app = web.Application(loop=loop, middlewares = [
         logger_factory, auth_factory, response_factory
     ])
@@ -128,7 +131,8 @@ async def init(loop):
 
     add_routes(app, 'handlers')
     add_static(app)
-    srv = await loop.create_server(app.make_handler(), '127.0.0.1', 9000)
+    # ip地址可设置'127.0.0.1'
+    srv = await loop.create_server(app.make_handler(), '0.0.0.1', 9000)
     logging.info("server started at 127.0.0.1:9000...")
     return srv
 
